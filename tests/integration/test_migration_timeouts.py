@@ -28,9 +28,14 @@ def downgrade() -> None:
 '''
 
 
-# Временная ветка миграций с настоящим env.py проекта и одной ревизией.
+# Временная ветка миграций с настоящим env.py проекта и одной ревизией: реальные
+# ревизии сервиса не копируются, иначе получится вторая голова.
 def run_alembic(tmp_path: Path, env: dict[str, str], statement: str):
-    shutil.copytree(ROOT / "migrations", tmp_path / "migrations")
+    shutil.copytree(
+        ROOT / "migrations",
+        tmp_path / "migrations",
+        ignore=shutil.ignore_patterns("0*.py", "__pycache__"),
+    )
     (tmp_path / "migrations" / "versions" / "tmp0001.py").write_text(
         REVISION.format(statement=statement)
     )

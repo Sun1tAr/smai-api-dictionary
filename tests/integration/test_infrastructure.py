@@ -60,6 +60,8 @@ def test_alembic_upgrade_and_downgrade_use_configured_database(
         ["downgrade", "base"],
         ["upgrade", "head"],
         ["check"],
+        # БД возвращается в исходное состояние для остальных интеграционных тестов.
+        ["downgrade", "base"],
     ):
         result = subprocess.run(
             ["alembic", *arguments],

@@ -6,14 +6,14 @@ from asyncpg import PostgresError
 from sqlalchemy import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
+from dictionary import models  # noqa: F401  (регистрирует таблицы в Base.metadata)
 from dictionary.config import Settings
-from dictionary.database import Base, create_migration_engine
+from dictionary.database import ALEMBIC_VERSION_TABLE, Base, create_migration_engine
 from dictionary.migration_diagnostics import describe_migration_error
 from dictionary.observability import configure_logging
 
 settings = Settings()
 configure_logging(settings.log_level)
-# Доменные модели появятся позже; их модуль нужно импортировать здесь.
 target_metadata = Base.metadata
 # Ревизии для диагностики падения: с какой начали и какая применена последней.
 progress: dict[str, str | None] = {"from_revision": None, "last_applied": None}
@@ -27,6 +27,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        version_table=ALEMBIC_VERSION_TABLE,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -41,6 +42,7 @@ def migrate(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        version_table=ALEMBIC_VERSION_TABLE,
         on_version_apply=record_applied,
     )
     progress["from_revision"] = context.get_context().get_current_revision()

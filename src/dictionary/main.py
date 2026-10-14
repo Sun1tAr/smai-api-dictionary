@@ -19,6 +19,7 @@ from prometheus_client import (
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from dictionary.api import router as dictionaries_router
 from dictionary.config import Settings
 from dictionary.database import create_engine
 from dictionary.errors import error_response, register_error_handlers
@@ -132,6 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.tracer_provider = provider
     app.state.metrics_registry = metrics_registry
     app.include_router(router)
+    app.include_router(dictionaries_router)
     app.openapi = lambda: build_openapi(app)
 
     # Request ID относится к текущему HTTP-вызову; query и тела не логируются.

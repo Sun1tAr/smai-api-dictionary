@@ -33,7 +33,7 @@ async def test_health_is_fully_documented_and_metrics_is_hidden(app) -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         document = (await client.get("/openapi.json")).json()
-    assert set(document["paths"]) == {"/health"}
+    assert set(document["paths"]) == {"/dictionaries", "/health"}
     operation = document["paths"]["/health"]["get"]
     assert operation["summary"]
     assert operation["description"]
@@ -52,3 +52,45 @@ async def test_health_is_fully_documented_and_metrics_is_hidden(app) -> None:
     jsonschema.validate(
         error["example"], {**error_schema, "components": {"schemas": schemas}}
     )
+
+
+async def test_dictionaries_endpoint_is_fully_documented(app) -> None:
+    from spec_data import RESPONSE
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        document = (await client.get("/openapi.json")).json()
+    assert set(document["paths"]["/dictionaries"]) == {"get"}
+    operation = document["paths"]["/dictionaries"]["get"]
+    assert operation["summary"] and operation["description"]
+    assert operation["tags"] == ["dictionaries"]
+    assert not operation.get("parameters")
+    # Валидация здесь недостижима, 422 фреймворка в схеме не нужен.
+    assert set(operation["responses"]) == {"200", "500"}
+    ok = operation["responses"]["200"]["content"]["application/json"]
+    error = operation["responses"]["500"]["content"]["application/json"]
+    assert ok["schema"]["$ref"].endswith("/DictionariesResponse")
+    assert error["schema"]["$ref"].endswith("/ErrorResponse")
+    assert error["example"]["error"] == {
+        "code": "INTERNAL_ERROR",
+        "message": "Failed to load dictionaries",
+        "details": {},
+    }
+    schemas = document["components"]["schemas"]
+    assert "HTTPValidationError" not in schemas
+    response_schema = schemas["DictionariesResponse"]
+    # Имена полей как в API-7, включая kitchenTools.
+    assert set(response_schema["properties"]) == set(RESPONSE)
+    assert set(response_schema["required"]) == set(RESPONSE)
+    for name in RESPONSE:
+        assert response_schema["properties"][name]["description"]
+    item_schema = schemas["DictionaryItem"]
+    assert set(item_schema["required"]) == {"id", "name"}
+    assert item_schema["properties"]["id"]["type"] == "integer"
+    # Пример совпадает с контрактом API-7 и со своей схемой.
+    assert response_schema["example"] == RESPONSE
+    resolver = {"components": {"schemas": schemas}}
+    jsonschema.validate(response_schema["example"], {**response_schema, **resolver})
+    error_schema = schemas["ErrorResponse"]
+    jsonschema.validate(error["example"], {**error_schema, **resolver})

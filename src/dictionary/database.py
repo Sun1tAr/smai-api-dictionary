@@ -6,6 +6,9 @@ from sqlalchemy.orm import DeclarativeBase
 
 from dictionary.config import Settings
 
+# Общий PostgreSQL на стенде: у сервиса своя таблица версий Alembic.
+ALEMBIC_VERSION_TABLE = "alembic_version_dictionary"
+
 
 # Явные имена ограничений делают миграции воспроизводимыми и позволяют их распознавать.
 class Base(DeclarativeBase):
