@@ -56,18 +56,24 @@ def test_migration_longer_than_db_timeout_succeeds(
     tmp_path: Path, alembic_env: dict[str, str]
 ) -> None:
     env = {**alembic_env, "DB_TIMEOUT_SECONDS": "1"}
+    passed = False
     try:
         result = run_alembic(tmp_path, env, "SELECT pg_sleep(2.5)")
         assert result.returncode == 0, result.stdout + result.stderr
+        passed = True
     finally:
         # Откат обязателен: иначе tmp0001 останется в БД и сломает следующие тесты.
-        subprocess.run(
+        cleanup = subprocess.run(
             ["alembic", "-c", str(tmp_path / "alembic.ini"), "downgrade", "base"],
             env=env,
             cwd=tmp_path,
-            check=True,
             capture_output=True,
+            text=True,
+            check=False,
         )
+        # Ошибка самого теста не подменяется ошибкой отката.
+        if passed:
+            assert cleanup.returncode == 0, cleanup.stdout + cleanup.stderr
 
 
 def test_failed_migration_logs_sqlstate_and_revisions_without_secrets(

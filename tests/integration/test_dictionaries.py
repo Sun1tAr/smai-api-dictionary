@@ -229,24 +229,51 @@ async def row_counts(settings: Settings) -> dict[str, int]:
         await engine.dispose()
 
 
+async def version_rows(settings: Settings) -> int | None:
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(settings.database_url)
+    try:
+        async with engine.connect() as connection:
+            if "alembic_version_dictionary" not in await existing_tables(settings):
+                return None
+            return await connection.scalar(
+                text("SELECT count(*) FROM alembic_version_dictionary")
+            )
+    finally:
+        await engine.dispose()
+
+
 async def test_downgrade_removes_tables_and_upgrade_restores_seeded_tables(
     settings: Settings, alembic_env: dict[str, str]
 ) -> None:
-    alembic(alembic_env, "downgrade", "base")
+    expected_counts = {table: len(rows) for table, rows in TABLES.items()}
     try:
-        # Служебная таблица версий Alembic остаётся и к справочникам не относится.
-        assert set(TABLES) & await existing_tables(settings) == set()
+        # Начинаем с заведомо применённой ревизии, чтобы downgrade что-то делал.
+        alembic(alembic_env, "downgrade", "base")
         alembic(alembic_env, "upgrade", "head")
         assert set(TABLES) <= await existing_tables(settings)
-        assert await row_counts(settings) == {
-            table: len(rows) for table, rows in TABLES.items()
-        }
+        assert await row_counts(settings) == expected_counts
+        assert await version_rows(settings) == 1
+
+        alembic(alembic_env, "downgrade", "base")
+        # Таблица версий Alembic остаётся, но пуста; справочников нет.
+        assert set(TABLES) & await existing_tables(settings) == set()
+        assert await version_rows(settings) in (None, 0)
+
+        alembic(alembic_env, "upgrade", "head")
+        assert await row_counts(settings) == expected_counts
+        assert await version_rows(settings) == 1
     finally:
         alembic(alembic_env, "downgrade", "base")
 
 
 async def test_health_is_ok_on_debug_and_503_when_database_rejects_the_service(
-    app, client, settings: Settings, capsys: pytest.CaptureFixture[str]
+    app,
+    client,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import json
 
@@ -263,6 +290,8 @@ async def test_health_is_ok_on_debug_and_503_when_database_rejects_the_service(
     ok = next(e for e in events if e["message"] == "http_request")
     assert (ok["path"], ok["status_code"], ok["level"]) == ("/health", 200, "debug")
 
+    capsys.readouterr()
+    caplog.set_level("DEBUG")
     # PostgreSQL доступен, но отвергает учётные данные: сервис не готов.
     broken = create_app(
         settings.model_copy(update={"db_password": SecretStr("wrong-password")})
@@ -278,3 +307,8 @@ async def test_health_is_ok_on_debug_and_503_when_database_rejects_the_service(
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
     assert "wrong-password" not in response.text
+    # Пароль не попадает и в логи (structlog, SQLAlchemy, asyncpg) за время запроса.
+    captured = capsys.readouterr()
+    logs = captured.out + captured.err + caplog.text
+    assert "dependency_unavailable" in logs
+    assert "wrong-password" not in logs

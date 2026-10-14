@@ -103,8 +103,19 @@ serial, `name` — уникальная строка) и их значения �
 uv sync
 uv run ruff check . && uv run ruff format --check .
 uv run pytest tests/unit -p no:cacheprovider -q
-# интеграционные тесты на реальном PostgreSQL
+# интеграционные тесты на реальном PostgreSQL (как в CI-сценарии)
 docker compose -p dictionary-tests -f docker-compose.test.yml up --build \
   --abort-on-container-exit --exit-code-from tests
 docker compose -p dictionary-tests -f docker-compose.test.yml down -v
 ```
+
+Два режима запуска отличаются строгостью:
+
+- `docker-compose.test.yml` запускает все тесты (unit и интеграционные на
+  PostgreSQL 17) с `FAIL_ON_SKIP=1` и порогом покрытия `--cov-fail-under=98`.
+  `FAIL_ON_SKIP=1` превращает любой пропущенный тест в ошибку, поэтому
+  интеграционные тесты не могут молча отключиться, если `TEST_DB_*` не дошли до
+  контейнера.
+- Локальный `uv run pytest tests/unit` этих ограничений не применяет: нет ни
+  `FAIL_ON_SKIP`, ни проверки покрытия, а интеграционные тесты без `TEST_DB_HOST`
+  пропускаются.
