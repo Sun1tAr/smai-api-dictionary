@@ -15,8 +15,8 @@ MS-2 — сервис справочников SmartMeal (SMAI-86). Хранит
 | Метод и путь | Назначение | Ответы | Статус |
 | --- | --- | --- | --- |
 | `GET /dictionaries` | Все справочники одним ответом (API-7): `habits`, `diets`, `allergies`, `kitchenTools`; элементы `{id, name}` по возрастанию `id` | 200, 500 `INTERNAL_ERROR` | API-7 |
-| `GET /health` | Готовность: `SELECT 1` к PostgreSQL; не пишет спаны, лог запроса на уровне DEBUG | 200 `{"status":"ok"}`, 503 `INTERNAL_ERROR` | служебный |
-| `GET /metrics` | Метрики Prometheus: HTTP, Python, GC и процесс (вне схемы OpenAPI); лог запроса на уровне DEBUG | 200 `text/plain` | служебный |
+| `GET /health` | Готовность: `SELECT 1` к PostgreSQL; не пишет спаны; успешный ответ логируется на DEBUG, 503 — на INFO | 200 `{"status":"ok"}`, 503 `INTERNAL_ERROR` | служебный |
+| `GET /metrics` | Метрики Prometheus: HTTP, Python, GC и процесс (вне схемы OpenAPI); успешный ответ логируется на DEBUG, ошибки — на INFO | 200 `text/plain` | служебный |
 | `GET /docs` | Swagger UI | 200 `text/html` | служебный |
 | `GET /openapi.json` | Схема OpenAPI | 200 `application/json` | служебный |
 

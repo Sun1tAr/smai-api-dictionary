@@ -66,7 +66,7 @@ def test_extra_environment_is_ignored() -> None:
     Path(".env").write_text(
         "DB_HOST=postgres\nDB_NAME=dictionary\nDB_USER=dictionary\n"
         "DB_PASSWORD=local-only\n"
-        "DICTIONARY_HTTP_PORT=8001\nUNKNOWN=1\n"
+        "DICTIONARY_HTTP_PORT=8002\nUNKNOWN=1\n"
     )
     assert Settings().db_host == "postgres"
 
@@ -170,15 +170,12 @@ def test_password_with_surrounding_spaces_is_kept_unchanged() -> None:
     )
 
 
-@pytest.mark.parametrize("field", ["otel_exporter_otlp_endpoint"])
 @pytest.mark.parametrize(
-    "url", ["http://user:private-pass@host:11434", "http://user@host:11434"]
+    "url", ["http://user:private-pass@host:4318", "http://user@host:4318"]
 )
-def test_urls_with_credentials_are_rejected_without_echoing_them(
-    field: str, url: str
-) -> None:
+def test_urls_with_credentials_are_rejected_without_echoing_them(url: str) -> None:
     with pytest.raises(ValidationError) as error:
-        make(**{field: url})
+        make(otel_exporter_otlp_endpoint=url)
     text = str(error.value)
     assert "credentials" in text
     assert "private-pass" not in text and "user" not in text.replace(

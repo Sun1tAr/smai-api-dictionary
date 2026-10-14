@@ -23,6 +23,8 @@ logger = structlog.get_logger()
         "согласованным снимком БД."
     ),
     response_model=DictionariesResponse,
+    # kitchenTools в ответе и в схеме: имя поля задаёт alias, не атрибут модели.
+    response_model_by_alias=True,
     responses={
         500: {
             "model": ErrorResponse,
