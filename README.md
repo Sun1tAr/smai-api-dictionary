@@ -103,7 +103,7 @@ serial, `name` — уникальная строка) и их значения �
 uv sync
 uv run ruff check . && uv run ruff format --check .
 uv run pytest tests/unit -p no:cacheprovider -q
-# интеграционные тесты на реальном PostgreSQL (как в CI-сценарии)
+# интеграционные тесты на реальном PostgreSQL
 docker compose -p dictionary-tests -f docker-compose.test.yml up --build \
   --abort-on-container-exit --exit-code-from tests
 docker compose -p dictionary-tests -f docker-compose.test.yml down -v

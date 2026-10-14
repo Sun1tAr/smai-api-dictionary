@@ -273,7 +273,6 @@ async def test_health_is_ok_on_debug_and_503_when_database_rejects_the_service(
     client,
     settings: Settings,
     capsys: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import json
 
@@ -291,10 +290,11 @@ async def test_health_is_ok_on_debug_and_503_when_database_rejects_the_service(
     assert (ok["path"], ok["status_code"], ok["level"]) == ("/health", 200, "debug")
 
     capsys.readouterr()
-    caplog.set_level("DEBUG")
     # PostgreSQL доступен, но отвергает учётные данные: сервис не готов.
     broken = create_app(
-        settings.model_copy(update={"db_password": SecretStr("wrong-password")})
+        settings.model_copy(
+            update={"db_password": SecretStr("wrong-password"), "log_level": "DEBUG"}
+        )
     )
     try:
         async with httpx.AsyncClient(
@@ -307,8 +307,9 @@ async def test_health_is_ok_on_debug_and_503_when_database_rejects_the_service(
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
     assert "wrong-password" not in response.text
-    # Пароль не попадает и в логи (structlog, SQLAlchemy, asyncpg) за время запроса.
+    # create_app настраивает логи на stdout (DEBUG): туда попадают и записи
+    # SQLAlchemy/asyncpg; пароль не должен появиться ни в одной из них.
     captured = capsys.readouterr()
-    logs = captured.out + captured.err + caplog.text
+    logs = captured.out + captured.err
     assert "dependency_unavailable" in logs
     assert "wrong-password" not in logs
