@@ -1,27 +1,43 @@
-# smai-api-dictionary
+# Smart Meal AI — Dictionary Service (MS-2)
 
-MS-2 — сервис справочников SmartMeal (SMAI-86). Хранит четыре фиксированных
-справочника (пищевые привычки, диеты, аллергены, кухонная техника) и отдаёт их
-клиенту одним запросом (API-7). Клиент обращается к сервису через gateway.
+Сервис справочников **Smart Meal AI**. Хранит четыре фиксированных справочника,
+которые клиент выбирает при настройке меню, и отдаёт их одним запросом через
+gateway.
 
-Справочники — сид-данные миграции Alembic (LE-7…LE-10): `id` стабилен, `name`
-уникален внутри справочника, административного CRUD нет. Сервис не хранит
-пользовательский выбор.
+> **Ветка.** Актуальный код и полная документация сервиса находятся в ветке
+> `develop`. В `main` исторически лежит только README; этот файл описывает
+> состояние `develop`.
 
-## Эндпоинты
+## Роль в системе
 
-Интерактивная документация (Swagger UI) — `/docs`, схема OpenAPI — `/openapi.json`.
+MS-2 не хранит пользовательский выбор и не имеет административного CRUD.
+Справочники — сид-данные миграции Alembic: `id` стабилен, `name` уникален внутри
+справочника. Сервис нужен двум потребителям:
 
-| Метод и путь | Назначение | Ответы | Статус |
-| --- | --- | --- | --- |
-| `GET /dictionaries` | Все справочники одним ответом (API-7): `habits`, `diets`, `allergies`, `kitchenTools`; элементы `{id, name}` по возрастанию `id` | 200, 500 `INTERNAL_ERROR` | API-7 |
-| `GET /health` | Готовность: `SELECT 1` к PostgreSQL; не пишет спаны; успешный ответ логируется на DEBUG, 503 — на INFO | 200 `{"status":"ok"}`, 503 `INTERNAL_ERROR` | служебный |
-| `GET /metrics` | Метрики Prometheus: HTTP, Python, GC и процесс (вне схемы OpenAPI); успешный ответ логируется на DEBUG, ошибки — на INFO | 200 `text/plain` | служебный |
-| `GET /docs` | Swagger UI | 200 `text/html` | служебный |
-| `GET /openapi.json` | Схема OpenAPI | 200 `application/json` | служебный |
+- gateway — для `GET /dictionaries` (API-7);
+- MS-4 (`smai-api-receipes`) — для проверки ID и подстановки названий в промпт
+  генерации меню.
 
-Пример ответа `GET /dictionaries` (сокращён; полный пример с 45 значениями — в
-`/docs`):
+## Стек
+
+- Python 3.12, FastAPI, Pydantic Settings;
+- SQLAlchemy 2 (async) + asyncpg, PostgreSQL;
+- Alembic;
+- structlog, OpenTelemetry, Prometheus (`prometheus-fastapi-instrumentator`);
+- uv, Ruff, pytest, Docker Compose, GitHub Actions.
+
+## API
+
+Интерактивная документация — `/docs`, схема OpenAPI — `/openapi.json`.
+
+| Метод | Путь | Назначение | Ответы |
+|---|---|---|---|
+| `GET` | `/dictionaries` | Все справочники одним ответом: `habits`, `diets`, `allergies`, `kitchenTools` | 200, 500 |
+| `GET` | `/health` | Готовность: `SELECT 1` к PostgreSQL | 200, 503 |
+| `GET` | `/metrics` | Метрики Prometheus | 200 |
+| `GET` | `/docs`, `/openapi.json` | Swagger UI и схема | 200 |
+
+Пример ответа:
 
 ```json
 {
@@ -32,70 +48,58 @@ MS-2 — сервис справочников SmartMeal (SMAI-86). Хранит
 }
 ```
 
-Параметров нет; лишние query-параметры игнорируются. Четыре справочника
-читаются одним согласованным снимком БД (транзакция `REPEATABLE READ READ ONLY`).
+Четыре справочника читаются одним согласованным снимком БД. Параметров у запроса
+нет, лишние query-параметры игнорируются.
 
-Все ошибки возвращаются в одном формате (без префикса `/api/v1` и без обёртки
-`data`/`meta`):
+Ошибки — единый формат без обёртки:
 
 ```json
 {"error": {"code": "INTERNAL_ERROR", "message": "Failed to load dictionaries", "details": {}}}
 ```
 
-Коды: `INTERNAL_ERROR` (500 при ошибке чтения справочников или необработанном
-исключении, 503 на `/health`), `NOT_FOUND` (404), `METHOD_NOT_ALLOWED` (405),
-`VALIDATION_ERROR` (400, общий обработчик; на `GET /dictionaries` недостижим).
-404 и 405 общие для всего сервиса и в схеме отдельных эндпоинтов не повторяются.
-Каждый ответ, включая 500, содержит заголовок `X-Request-ID`: входящее значение
-принимается, если это до 128 символов `A-Za-z0-9._-`, иначе генерируется UUID4;
-тот же `request_id` пишется в логи. Тексты исключений и SQL в ответы и логи не
-попадают. Схема OpenAPI не содержит `422` и `HTTPValidationError` фреймворка.
+Каждый ответ содержит `X-Request-ID`; входящее значение принимается, если это до
+128 символов `A-Za-z0-9._-`, иначе генерируется UUID4.
 
-## Локальный запуск
+## Данные
 
-Требуются Docker и Docker Compose. Сервис подключается к внешней сети `smai`,
-общей для контура (gateway находит его по имени `dictionary`).
-
-```sh
-docker network create smai   # один раз
-cp .env.example .env         # проверьте значения, это локальные заглушки
-docker compose up --build --wait
-curl --fail http://127.0.0.1:8002/dictionaries
-curl --fail http://127.0.0.1:8002/health
-curl --fail http://127.0.0.1:8002/docs
-docker compose down -v       # остановка; -v удаляет том PostgreSQL
-```
-
-Контейнер слушает `0.0.0.0:8000`, на хосте порт публикуется как
-`127.0.0.1:${DICTIONARY_HTTP_PORT:-8002}`. PostgreSQL доступен только внутри
-Compose-сети. При старте контейнер выполняет `alembic upgrade head` (создаёт
-таблицы и наполняет справочники), затем запускает uvicorn; приложение не
-стартует, если БД недоступна. Контейнер работает от пользователя `dictionary`
-(UID 10001).
+Таблицы `habit`, `diet`, `allergen`, `kitchen_tool` создаются и наполняются
+ревизией `0001_create_dictionaries`. Таблица версий Alembic —
+`alembic_version_dictionary`. Изменение справочника выполняется новой ревизией с
+явными `id`; существующие `id` не меняются.
 
 ## Конфигурация
 
-Настройки читаются только из окружения (локально — также из `.env` в рабочей
-директории; переменные процесса приоритетнее). Пустое значение (`KEY=`)
-считается незаданным. Некорректная конфигурация останавливает запуск.
+Настройки читаются из окружения (локально — также из `.env`). Пустое значение
+считается незаданным; некорректная конфигурация останавливает запуск.
 
 | Переменная | Назначение | По умолчанию |
-| --- | --- | --- |
-| `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Подключение к PostgreSQL | Обязательны |
+|---|---|---|
+| `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Подключение к PostgreSQL | обязательны |
 | `DB_PORT` | Порт PostgreSQL | `5432` |
-| `DB_TIMEOUT_SECONDS` | Предельное ожидание БД (0, 60]: подключение и запросы приложения. Запросы миграций не ограничиваются | `5` |
-| `MIGRATION_LOCK_TIMEOUT_SECONDS` | Ожидание чужой блокировки при миграциях, (0, 3600] | `30` |
-| `LOG_LEVEL` | DEBUG / INFO / WARNING / ERROR | `INFO` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Базовый адрес OTLP HTTP, например `http://collector:4318` | Экспорт отключён |
-| `DICTIONARY_HTTP_PORT` | Только Compose: порт на хосте | `8002` |
+| `DB_TIMEOUT_SECONDS` | Предельное ожидание БД | `5` |
+| `MIGRATION_LOCK_TIMEOUT_SECONDS` | Ожидание блокировки при миграциях | `30` |
+| `LOG_LEVEL` | Уровень логирования | `INFO` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Адрес OTLP HTTP-коллектора | экспорт отключён |
+| `DICTIONARY_HTTP_PORT` | Хостовой порт Compose | `8002` |
 
-## Миграции и данные
+## Локальный запуск
 
-Таблицы `habit`, `diet`, `allergen`, `kitchen_tool` (`id` — целое без identity/
-serial, `name` — уникальная строка) и их значения создаёт ревизия `0001`.
-Таблица версий Alembic — `alembic_version_dictionary` (общий PostgreSQL на
-стенде). Изменение справочника — новой ревизией с явными `id`; `id` существующих
-значений не меняются.
+Нужны Docker и Docker Compose. Сервис подключается к внешней сети `smai`, по
+имени `dictionary` его находит gateway.
+
+```sh
+docker network create smai   # один раз
+cp .env.example .env         # локальные заглушки, проверьте значения
+docker compose up --build --wait
+curl --fail http://127.0.0.1:8002/dictionaries
+curl --fail http://127.0.0.1:8002/health
+docker compose down -v
+```
+
+Контейнер слушает `0.0.0.0:8000`, на хосте публикуется
+`127.0.0.1:${DICTIONARY_HTTP_PORT:-8002}`. При старте выполняется
+`alembic upgrade head`, затем запускается uvicorn. Контейнер работает от
+пользователя `dictionary` (UID 10001).
 
 ## Разработка и тесты
 
@@ -103,19 +107,28 @@ serial, `name` — уникальная строка) и их значения �
 uv sync
 uv run ruff check . && uv run ruff format --check .
 uv run pytest tests/unit -p no:cacheprovider -q
-# интеграционные тесты на реальном PostgreSQL
+
+# unit + integration на реальном PostgreSQL
 docker compose -p dictionary-tests -f docker-compose.test.yml up --build \
   --abort-on-container-exit --exit-code-from tests
 docker compose -p dictionary-tests -f docker-compose.test.yml down -v
 ```
 
-Два режима запуска отличаются строгостью:
+Тестовый Compose запускает все тесты с `FAIL_ON_SKIP=1` и порогом покрытия 98 %,
+поэтому интеграционные тесты не могут молча отключиться. CI
+(`.github/workflows/ci.yml`) выполняет линтер, unit-тесты, интеграционные тесты и
+сборку образа.
 
-- `docker-compose.test.yml` запускает все тесты (unit и интеграционные на
-  PostgreSQL 17) с `FAIL_ON_SKIP=1` и порогом покрытия `--cov-fail-under=98`.
-  `FAIL_ON_SKIP=1` превращает любой пропущенный тест в ошибку, поэтому
-  интеграционные тесты не могут молча отключиться, если `TEST_DB_*` не дошли до
-  контейнера.
-- Локальный `uv run pytest tests/unit` этих ограничений не применяет: нет ни
-  `FAIL_ON_SKIP`, ни проверки покрытия, а интеграционные тесты без `TEST_DB_HOST`
-  пропускаются.
+## Известные ограничения
+
+- Справочники неизменяемы в рантайме: обновление — только миграцией.
+- Нет административного API и авторизации: сервис доступен только из сети
+  контура.
+- Базовые образы закреплены тегами, а не digest.
+
+## Связанные репозитории
+
+- [SmartMeal-AI](https://github.com/Sun1tAr/SmartMeal-AI) — обзор проекта;
+- [smai-api-gateway](https://github.com/Sun1tAr/smai-api-gateway) — публикует `/dictionaries`;
+- [smai-api-receipes](https://github.com/Sun1tAr/smai-api-receipes) — использует справочники в генерации;
+- [smai-infra](https://github.com/Sun1tAr/smai-infra) — развёртывание контура.
